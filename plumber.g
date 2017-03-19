@@ -205,9 +205,10 @@ boolatom: boolean_function | LPAREN! boolexpr RPAREN!;
 /*
    LOOPS
 */
+list: (ops)* <<#0=createASTlist(_sibling); >>;
 
 whileloop
-  : WHILE^ LPAREN! boolexpr RPAREN! (ops)* ENDWHILE!;
+  : WHILE^ LPAREN! boolexpr RPAREN! list ENDWHILE!;
 
 /* 
    ARITHMETICAL 
