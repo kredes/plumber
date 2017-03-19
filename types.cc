@@ -8,12 +8,15 @@ using namespace std;
 class PlumberType {
 public:
     virtual string repr();
+    virtual string type();
 };
 
 
 class Tube : public PlumberType {
 public:
     int length, diameter;
+    
+    Tube() {}
     
     Tube(int length, int diameter) {
         this->length = length;
@@ -32,11 +35,15 @@ public:
         return os.str();  
     }
     
+    string type() { return "Tube"; }
+    
 };
 
 class Connector : public PlumberType {
 public:
     int diameter;
+    
+    Connector() {}
     
     Connector(int diameter) {
         this->diameter = diameter;
@@ -53,6 +60,8 @@ public:
         
         return os.str();  
     }
+    
+    string type() { return "Tubevector"; }
 };
 
 class Tubevector : public PlumberType {
@@ -60,6 +69,8 @@ public:
     
     vector<Tube> tubes;
     int max_size;
+    
+    Tubevector() {}
     
     Tubevector(int max_size) {
         this->max_size = max_size;
@@ -97,4 +108,6 @@ public:
         
         return os.str();  
     }
+    
+    string type() { return "Connector"; }
 };

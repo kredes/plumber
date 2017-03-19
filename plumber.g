@@ -21,6 +21,7 @@ typedef struct {
     
     Tube *t1, *t2 = NULL;
     Tubevector *vector = NULL;
+    Connector connector;
     bool condition;
     int number;
 } Evaluation;
@@ -48,7 +49,7 @@ void printSymbolTable() {
     cout << endl << endl << "Symbols table" << endl;
     cout << "id    | value" << endl;
     cout << "---------------" << endl;
-    for(map<string, PlumberType>::const_iterator it = m.begin(); it != m.end(); ++it) {
+    for(map<string, PlumberType>::iterator it = m.begin(); it != m.end(); ++it) {
         PlumberType elem = it->second;
         cout << it->first << "     | " << elem.repr() << endl;
     }
@@ -130,39 +131,163 @@ void ASTPrint(AST *a)
   }
 }
 
-bool evaluateBool(AST *a) {
+/* Forward declarations */
+int evaluateNumber(AST *a);
+bool evaluateBool(AST *a);
+Tube evaluateTube(AST *a);
+Tubevector evaluateVector(AST *a);
+Connector evaluateConnector(AST *a);
+pair<Tube, Tube> evaluateSplit(AST *a);
 
-}
 
 /*
     Evaluates any instruction that yields a single Tube as a result.
     I.e.: TUBE and MERGE
 */
 Tube evaluateTube(AST *a) {
-
+    if (a->kind == "TUBE") {
+        int length = evaluateNumber(child(a,0));
+        int diameter = evaluateNumber(child(a,1));
+        
+        return Tube(length, diameter);
+        
+    } else if (a->kind == "MERGE") {
+        Connector c = evaluateConnector(child(a,1));
+        Tube t1 = evaluateTube(child(a,0));
+        Tube t2 = evaluateTube(child(a,2));
+        
+        return c.merge(t1, t2);     // TODO: Remove them from memory!!!
+    }
+    else if (a->kind == "id")
+        return (Tube) m[a->text];
+    else {
+        throw "This shouldn't happen";
+    }
 }
 
 pair<Tube, Tube> evaluateSplit(AST *a) {
-
+    if (a->kind == "SPLIT") {
+        Tube t = evaluateTube(child(a,0));
+        return t.split();
+    } else {
+        throw "This shouldn't happen";
+    }
 }
 
 // Evaluates the TUBEVECTOR instruction
 Tubevector evaluateVector(AST *a) {
-
+    if (a->kind == "TUBEVECTOR") {
+        int size = evaluateNumber(child(a,0));
+        return Tubevector(size);
+    } else if (a->kind == "id") {
+        return (Tubevector) m[a->text];
+    } else {
+        throw "This shouldn't happen";
+    }
 }
 
-int evaluateNumericalFunction(AST *a) {
+Connector evaluateConnector(AST *a) {
+    if (a->kind == "CONNECTOR") {
+        int diameter = evaluateNumber(child(a,0));
+        return Connector(diameter);
+    } else if (a->kind == "id") {
+        return (Connector) m[a->text];
+    } else {
+        throw "This shouldn't happen";
+    }
+}
+
+int evaluateNumber(AST *a) {
+    if (a == NULL) return 0;
+    else if (a->kind == "integer")
+        return atoi(a->text.c_str());
+    else if (a->kind == "LENGTH") {
+        Tube t = evaluateTube(child(a,0));
+        return t.length;
+    }
+    else if (a->kind == "DIAMETER") {
+        Tube t = evaluateTube(child(a,0));
+        return t.diameter;
+    } else {
+        throw "This shouldn't happen";
+    }
+}
+
+bool evaluateBool(AST *a) {
+    if (a->kind == "AND")
+        return evaluateBool(child(a,0)) and evaluateBool(child(a,1));
+    else if (a->kind == "OR")
+        return evaluateBool(child(a,0)) or evaluateBool(child(a,1));
+    else if (a->kind == "NOT")
+        return not evaluateBool(child(a,0));
+    else if (a->kind == ">")
+        return evaluateNumber(child(a,0)) > evaluateNumber(child(a,1));
+    else if (a->kind == "<")
+        return evaluateNumber(child(a,0)) < evaluateNumber(child(a,1));
+    else if (a->kind == "==")
+        return evaluateNumber(child(a,0)) == evaluateNumber(child(a,1));
+    else if (a->kind == "FULL") {
+        Tubevector &tv = evaluateVector(child(a,0));
+        return tv.full();
+    } else if (a->kind == "EMPTY") {
+        Tubevector &tv = evaluateVector(child(a,0));
+        return tv.empty();
+    } else {
+        throw "This shouldn't happen";
+    }
+}
+
+
+void execute(AST *a) {
+    if (a == NULL) return;
+    else if (a->kind == "=") {
+        bool split = child(a,2) == NULL ? false : true;
+        if (split) {
+            pair<Tube, Tube> ev = evaluateSplit(child(a,2));
+            m[child(a,0)->text] = ev.first;
+            m[child(a,1)->text] = ev.second;
+        } else {
+            AST *aux = child(a,1);
+            if (aux->kind == "TUBEVECTOR")
+                m[child(a,0)->text] = evaluateVector(aux);
+            else if (aux->kind == "CONNECTOR")
+                m[child(a,0)->text] = evaluateConnector(aux);
+            else if (aux->kind == "TUBE" or aux->kind == "MERGE")
+                m[child(a,0)->text] = evaluateTube(aux);
+        }
+    } else if (a->kind == "WHILE") {
+        bool condition = evaluateBool(child(a,0));
+        while (condition) {
+            execute(child(a,1));
+            condition = evaluateBool(child(a,0));
+        }
+    }
+    // A function
+    else cout << evaluateNumber(a) << endl;
     
+    execute(a->right);
 }
 
+/*
 Evaluation evaluate(AST *a) {
     Evaluation eval;
     if (a == NULL) return eval;
     else if (a->kind == "id") 
-        return m[a->text];
+        PlumberType elem = m[a->text];
+        
+        if (elem.type() == "Tube")
+            eval.t1 = (Tube) elem;
+        else if (elem.type == "Tubevector")
+            eval.vector = (Tubevector) elem;
+        else if (elem.type == "Connector")
+            eval.connector = (Connector) elem;
+        
+        
     else if (a->kind == "integer") 
+        
         return atoi(a->text.c_str());
     else if (a->kind == "+")
+        
         return evaluate(child(a,0)).number + evaluate(child(a,1)).number;
     else if (a->kind == "-")
         return evaluate(child(a,0)).number - evaluate(child(a,1)).number;
@@ -170,6 +295,8 @@ Evaluation evaluate(AST *a) {
         return evaluate(child(a,0)).number * evaluate(child(a,1)).number;
     else if (a->kind == "/")
         return evaluate(child(a,0)).number / evaluate(child(a,1)).number;
+    
+    return eval;
 }
 
 
@@ -202,6 +329,7 @@ void execute(AST *a) {
     
     execute(a->right);
 }
+*/
 
 int main() {
   AST *root = NULL;
@@ -298,7 +426,8 @@ whileloop
 */
 expr: term (PLUS^ term | MINUS^ term)*;
 term: atom (MULT^ atom | DIV^ atom)*;
-atom: NUM | ID | numerical_function;
+//atom: NUM | ID | numerical_function;
+atom: NUM | numerical_function;
 
 
 
