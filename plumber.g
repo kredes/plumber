@@ -1,5 +1,6 @@
 #header
 <<
+#include <map>
 #include <string>
 #include <iostream>
 using namespace std;
@@ -25,6 +26,20 @@ AST* createASTnode(Attrib* attr, int ttype, char *textt);
 <<
 #include <cstdlib>
 #include <cmath>
+
+// Symbols Table
+map<string, int> m;
+
+void printSymbolTable() {
+    cout << endl << endl << "Symbols table" << endl;
+    cout << "name  | value" << endl;
+    cout << "---------------" << endl;
+    for(map<string, int>::const_iterator it = m.begin(); it != m.end(); ++it) {
+        cout << it->first << "     | " << it->second << endl;
+    }
+    cout << endl << endl;
+}
+
 // function to fill token information
 void zzcr_attr(Attrib *attr, int type, char *text) {
     attr->kind = text;
@@ -99,49 +114,151 @@ int main() {
 >>
 
 #lexclass START
+
 #token TUBEVECTOR "TUBEVECTOR"
-#token TUBE "TUBE"
-#token CONNECTOR "CONNECTOR"
-#token DIAMETER "DIAMETER"
-#token SPLIT "SPLIT"
-#token MERGE "MERGE"
+#token OF "OF"
 #token PUSH "PUSH"
-#token ENDWHILE "ENDWHILE"
-#token WHILE "WHILE"
 #token FULL "FULL"
 #token EMPTY "EMPTY"
-#token LENGTH "LENGTH"
 #token POP "POP"
+
+#token TUBE "TUBE"
+#token LENGTH "LENGTH"
+#token DIAMETER "DIAMETER"
+#token SPLIT "SPLIT"
+
+#token CONNECTOR "CONNECTOR"
+
+#token MERGE "MERGE"
+
+
+#token ENDWHILE "ENDWHILE"
+#token WHILE "WHILE"
+
+
 #token AND "AND"
 #token OR "OR"
 #token NOT "NOT"
+
+#token GT ">"
+#token LT "<"
+#token EQ "=="
+
+// Keep the "=" below the "=="!
+#token ASSIG "="
 #token PLUS "\+"
 #token MINUS "\-"
 #token TIMES "\*"
 #token DIV "/"
-#token GT ">"
-#token LT "<"
-#token EQ "=="
+
+#token COMMA ","
 #token LPAREN "\("
 #token RPAREN "\)"
+
+#token NUM "[0-9]+"
 #token ID "[a-zA-Z][0-9a-zA-Z]*"
-#token NUM "[0-9]+
-#token SPACE "[\ \n]" << zzskip();>>
+#token SPACE "[\ \n\t]" << zzskip();>>
 
 plumber: (ops)* <<#0=createASTlist(_sibling);>>;
-boolexpr: (NOT^)* expr (AND^ boolexpr | OR^ boolexpr | expr | atom)*
-expr:
-term: atom (MULT^ atom | DIV^ atom)
-merge: MERGE^ ID ID ID
-pop: POP^ ID ID
-push: PUSH^ ID ID
-action: merge | pop | push
 
-tube TUBE atom atom
-connector: CONNECTOR atom atom
-length: LENGTH^ LPAREN! ID RPAREN!
-empty: EMPTY^ LPAREN! ID RPAREN!
-full: FULL^ LPAREN! ID RPAREN!
-function: tube | connector | split | length | empty | full
-atom: NUM | ID |
-//...
+ops
+  : action
+  | whileloop
+  | function
+  ;
+
+
+/* BOOLEAN
+   Boolean expressions with standard precedences. Allows parenthesis. */
+
+//bool: TRUE | FALSE
+
+//boolexpr: (NOT^)* (binary_boolop boolexpr | expr | atom)*
+
+/*
+boolexpr
+ : LPAREN! boolexpr RPAREN!                     //parenExpression
+ | NOT^ boolexpr                                //notExpression
+ | boolexpr comparator boolexpr                 //comparatorExpression
+ | boolexpr binary boolexpr                     //binaryExpression
+ | boolean_function
+ | ID                                           //identifierExpression
+ | NUM                                          //decimalExpression
+ ;
+//| bool                                       //boolExpression
+*/
+
+//comparator: GT^ | LT^ | EQ^;
+//binary: AND | OR;
+
+boolexpr: bterm2 (OR^ bterm2)*;
+bterm2: bterm1 (AND^ bterm1);
+bterm1
+  : NOT^ bterm
+  | bterm;
+bterm
+  : atom (GT^ atom | LT^ atom | EQ^ atom) // Should right atom be expr? Like x > 2 + 3 * 5
+  | boolatom; 
+boolatom: boolean_function | LPAREN! boolexpr RPAREN!;
+
+ 
+/*
+   LOOPS
+*/
+
+whileloop
+  : WHILE^ LPAREN! boolexpr RPAREN! (ops)* ENDWHILE!;
+
+/* 
+   ARITHMETICAL 
+   Arithmetical expresions with standard precedences.
+   Parenthesis are NOT allowed in these to avoid ambiguities.
+*/
+expr: term (PLUS^ term | MINUS^ term)*;
+term: atom (MULT^ atom | DIV^ atom);
+
+/* Anything other than an arithmetical expression that can be evaluated to
+   a numerical value. */
+atom: NUM | ID | numerical_function;
+
+
+
+/* 
+   ACTIONS 
+   Whatever thing that does not return any value.
+*/
+assign
+  : ID ASSIG^ (ID | type_function)
+  | LPAREN! ID COMMA! ID RPAREN! ASSIG^ split;    // (T1, T2) = SPLIT T3
+merge
+  : MERGE^ (merge | ID) ID (merge | ID);
+pop
+  : POP^ ID ID;
+push
+  : PUSH^ ID ID;
+
+action: assign | merge | pop | push;
+
+
+/* 
+   FUNCTIONS
+   Whatever thing that returns a value.
+*/
+tubevector: TUBEVECTOR^ OF! atom;
+tube: TUBE^ atom atom;
+connector: CONNECTOR^ atom;
+
+split: SPLIT^ ID;
+
+length: LENGTH^ LPAREN! ID RPAREN!;
+diameter: DIAMETER^ LPAREN! ID RPAREN!;
+
+empty: EMPTY^ LPAREN! ID RPAREN!;
+full: FULL^ LPAREN! ID RPAREN!;
+
+// SPLIT is NOT included in type_function for convenience
+type_function: tubevector | tube | connector | merge;
+numerical_function: length | diameter;
+boolean_function: empty | full;
+
+function: type_function | numerical_function | boolean_function;
