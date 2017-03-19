@@ -1,6 +1,8 @@
 #header
 <<
 #include <map>
+#include <vector>
+#include "types.cc"
 #include <string>
 #include <iostream>
 using namespace std;
@@ -10,6 +12,18 @@ typedef struct {
   string kind;
   string text;
 } Attrib;
+
+// Represents the result of evaluating something
+typedef struct {
+    bool success;
+    
+    string type;
+    
+    Tube *t1, *t2 = NULL;
+    Tubevector *vector = NULL;
+    bool condition;
+    int number;
+} Evaluation;
 
 // function to fill token information (predeclaration)
 void zzcr_attr(Attrib *attr, int type, char *text);
@@ -28,22 +42,32 @@ AST* createASTnode(Attrib* attr, int ttype, char *textt);
 #include <cmath>
 
 // Symbols Table
-map<string, int> m;
+map<string, PlumberType> m;
 
 void printSymbolTable() {
     cout << endl << endl << "Symbols table" << endl;
-    cout << "name  | value" << endl;
+    cout << "id    | value" << endl;
     cout << "---------------" << endl;
-    for(map<string, int>::const_iterator it = m.begin(); it != m.end(); ++it) {
-        cout << it->first << "     | " << it->second << endl;
+    for(map<string, PlumberType>::const_iterator it = m.begin(); it != m.end(); ++it) {
+        PlumberType elem = it->second;
+        cout << it->first << "     | " << elem.repr() << endl;
     }
     cout << endl << endl;
 }
 
 // function to fill token information
-void zzcr_attr(Attrib *attr, int type, char *text) {
-    attr->kind = text;
-    attr->text = "";
+void zzcr_attr(Attrib *attr, int type, char *text) {    
+    if (type == ID) {
+        attr->kind = "id";
+        attr->text = text;
+    }
+    else if (type == NUM) {
+        attr->kind = "integer";
+        attr->text = text;
+    } else {
+        attr->kind = text;
+        attr->text = "";
+    }
 }
 
 // function to create a new AST node
@@ -106,10 +130,86 @@ void ASTPrint(AST *a)
   }
 }
 
+bool evaluateBool(AST *a) {
+
+}
+
+/*
+    Evaluates any instruction that yields a single Tube as a result.
+    I.e.: TUBE and MERGE
+*/
+Tube evaluateTube(AST *a) {
+
+}
+
+pair<Tube, Tube> evaluateSplit(AST *a) {
+
+}
+
+// Evaluates the TUBEVECTOR instruction
+Tubevector evaluateVector(AST *a) {
+
+}
+
+int evaluateNumericalFunction(AST *a) {
+    
+}
+
+Evaluation evaluate(AST *a) {
+    Evaluation eval;
+    if (a == NULL) return eval;
+    else if (a->kind == "id") 
+        return m[a->text];
+    else if (a->kind == "integer") 
+        return atoi(a->text.c_str());
+    else if (a->kind == "+")
+        return evaluate(child(a,0)).number + evaluate(child(a,1)).number;
+    else if (a->kind == "-")
+        return evaluate(child(a,0)).number - evaluate(child(a,1)).number;
+    else if (a->kind == "*")
+        return evaluate(child(a,0)).number * evaluate(child(a,1)).number;
+    else if (a->kind == "/")
+        return evaluate(child(a,0)).number / evaluate(child(a,1)).number;
+}
+
+
+void execute(AST *a) {
+    if (a == NULL) return;
+    else if (a->kind == "=") {
+        bool split = child(a,2) == NULL ? false : true;
+        if (split) {
+            Evaluation ev = evaluate(child(a,2));
+            m[child(a,0)->text] = ev.t1;
+            m[child(a,1)->text] = ev.t2;
+        } else {
+            AST *aux = child(a,1);
+            
+            
+            if (aux->kind == "TUBEVECTOR")
+                m[child(a,0)->text] = evaluate(aux).vector;
+            else if (aux->kind == "TUBE")
+                m[child(a,0)->text] = evaluate(aux).t1;
+        }
+    } else if (a->kind == "WHILE") {
+        Evaluation ev = evaluate(child(a,0));
+        while (ev.condition) {
+            execute(child(a,1));
+            ev = evaluate(child(a,0));
+        }
+    } 
+    // A function
+    else cout << evaluate(a).number << endl;
+    
+    execute(a->right);
+}
+
 int main() {
   AST *root = NULL;
   ANTLR(plumber(&root), stdin);
   ASTPrint(root);
+  execute(root);
+  
+  printSymbolTable();
 }
 >>
 
@@ -168,36 +268,17 @@ ops
   ;
 
 
-/* BOOLEAN
-   Boolean expressions with standard precedences. Allows parenthesis. */
-
-//bool: TRUE | FALSE
-
-//boolexpr: (NOT^)* (binary_boolop boolexpr | expr | atom)*
-
-/*
-boolexpr
- : LPAREN! boolexpr RPAREN!                     //parenExpression
- | NOT^ boolexpr                                //notExpression
- | boolexpr comparator boolexpr                 //comparatorExpression
- | boolexpr binary boolexpr                     //binaryExpression
- | boolean_function
- | ID                                           //identifierExpression
- | NUM                                          //decimalExpression
- ;
-//| bool                                       //boolExpression
+/* 
+   BOOLEAN
+   Boolean expressions with standard precedences. Allows parenthesis.
 */
-
-//comparator: GT^ | LT^ | EQ^;
-//binary: AND | OR;
-
 boolexpr: bterm2 (OR^ bterm2)*;
 bterm2: bterm1 (AND^ bterm1);
 bterm1
   : NOT^ bterm
   | bterm;
 bterm
-  : atom (GT^ atom | LT^ atom | EQ^ atom) // Should right atom be expr? Like x > 2 + 3 * 5
+  : expr (GT^ expr | LT^ expr | EQ^ expr) // Should right atom be expr? Like x > 2 + 3 * 5
   | boolatom; 
 boolatom: boolean_function | LPAREN! boolexpr RPAREN!;
 
@@ -205,10 +286,10 @@ boolatom: boolean_function | LPAREN! boolexpr RPAREN!;
 /*
    LOOPS
 */
-list: (ops)* <<#0=createASTlist(_sibling); >>;
+oplist: (ops)* <<#0=createASTlist(_sibling);>>;
 
 whileloop
-  : WHILE^ LPAREN! boolexpr RPAREN! list ENDWHILE!;
+  : WHILE^ LPAREN! boolexpr RPAREN! oplist ENDWHILE!;
 
 /* 
    ARITHMETICAL 
@@ -216,10 +297,7 @@ whileloop
    Parenthesis are NOT allowed in these to avoid ambiguities.
 */
 expr: term (PLUS^ term | MINUS^ term)*;
-term: atom (MULT^ atom | DIV^ atom);
-
-/* Anything other than an arithmetical expression that can be evaluated to
-   a numerical value. */
+term: atom (MULT^ atom | DIV^ atom)*;
 atom: NUM | ID | numerical_function;
 
 
@@ -231,25 +309,25 @@ atom: NUM | ID | numerical_function;
 assign
   : ID ASSIG^ (ID | type_function)
   | LPAREN! ID COMMA! ID RPAREN! ASSIG^ split;    // (T1, T2) = SPLIT T3
-merge
-  : MERGE^ (merge | ID) ID (merge | ID);
 pop
   : POP^ ID ID;
 push
   : PUSH^ ID ID;
 
-action: assign | merge | pop | push;
+action: assign | pop | push;
 
 
 /* 
    FUNCTIONS
    Whatever thing that returns a value.
 */
-tubevector: TUBEVECTOR^ OF! atom;
-tube: TUBE^ atom atom;
-connector: CONNECTOR^ atom;
+tubevector: TUBEVECTOR^ OF! expr;
+tube: TUBE^ expr expr;
+connector: CONNECTOR^ expr;
 
 split: SPLIT^ ID;
+merge
+  : MERGE^ (merge | ID) ID (merge | ID);
 
 length: LENGTH^ LPAREN! ID RPAREN!;
 diameter: DIAMETER^ LPAREN! ID RPAREN!;
@@ -262,4 +340,4 @@ type_function: tubevector | tube | connector | merge;
 numerical_function: length | diameter;
 boolean_function: empty | full;
 
-function: type_function | numerical_function | boolean_function;
+function: type_function | numerical_function | boolean_function | split;
