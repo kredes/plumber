@@ -40,11 +40,13 @@ void printSymbolTable() {
     cout << "---------------" << endl;
     for(map<string, PlumberType*>::iterator it = m.begin(); it != m.end(); ++it) {
         PlumberType *elem = it->second;
-        //cout << it->first << "      | " << elem->repr() << endl;
         
+        if (elem != NULL) cout << it->first << "      | " << elem->repr() << endl;
+        /*
         cout << "Is this element null? ";
         if (it->second == NULL) cout << "Yes." << endl;
         else cout << "No. It is: " << it->first << " -> " << it->second->repr() << endl;
+        */
     }
     cout << endl << endl;
 }
@@ -161,7 +163,15 @@ Tube* evaluateTube(AST *a) {
         Tube *t1 = evaluateTube(child(a,0));
         Connector *c = evaluateConnector(child(a,1));
         Tube *t2 = evaluateTube(child(a,2));
-                
+        
+        int d1 = t1->diameter;
+        int d2 = c->diameter;
+        int d3 = t2->diameter;
+        if (d1 != d2 or d2 != d3 or d1 != d3) {
+            cout << "\t\tERROR: Incompatible diameters (" << d1 << ", " << d2 << ", " << d3 << ")" << endl;
+            throw IncompatibleDiameterException("Dummy");
+        }
+        
         Tube *t = c->merge(t1, t2);
         
         // Check if they're in the map as they might be a temporary element
@@ -202,8 +212,10 @@ pair<Tube*, Tube*> evaluateSplit(AST *a) {
         pair<Tube*, Tube*> p = t->split();
         
         // See MERGE's evaluation of Tube for the explanation of this
-        if (m.find(child(a,0)->text) != m.end()) m.erase(child(a,0)->text);
-        
+        if (m.find(child(a,0)->text) != m.end()) {
+            int x = m.erase(child(a,0)->text);
+            if (x == 0) throw 234;
+        }
         //delete t;
         
         return p;
@@ -329,6 +341,8 @@ void execute(AST *a) {
                     m[child(a,0)->text] = evaluateTube(child(a,1));
                 else if (child(a,1)->text == "CONNECTOR")
                     m[child(a,0)->text] = evaluateConnector(child(a,1));
+                else
+                    m[child(a,0)->text] = evaluateTube(child(a,1));
             } else {
                 AST *aux = child(a,1);
                 if (aux->kind == "TUBEVECTOR") {
@@ -353,12 +367,14 @@ void execute(AST *a) {
         } else if (a->kind == "WHILE") {
             bool condition = evaluateBool(child(a,0));
             cout << endl << "------------ WHILE START -------------" << endl;
+            printSymbolTable();
             while (condition) {
                 cout << endl << "------------ ITERATION START -------------" << endl;
                 
                 execute(child(a,1));
                 
                 cout << endl << "------------ ITERATION END -------------" << endl;
+                printSymbolTable();
                 condition = evaluateBool(child(a,0));
             }
             cout << endl << "------------ WHILE END -------------" << endl;
@@ -378,6 +394,8 @@ void execute(AST *a) {
     } 
     catch (InvalidIdentifierException &e) {
         //cout << string(e.what()) << endl;
+    } catch(IncompatibleDiameterException &e) {
+        // pass
     }
     
     execute(a->right);

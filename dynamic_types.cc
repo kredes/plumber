@@ -31,8 +31,8 @@ public:
             l1 = length/2;
             l2 = length/2;
         } else {
-            l1 = (length/2) + 1;
-            l2 = length/2;
+            l1 = length/2;
+            l2 = (length/2) + 1;
         }
         return make_pair(new Tube(l1, diameter), new Tube(l2, diameter));
     }
@@ -137,6 +137,16 @@ public:
 class InvalidIdentifierException : public exception {
 public:
     InvalidIdentifierException(const char* errMessage):errMessage_(errMessage){}
+
+    const char* what() const throw() { return errMessage_; }
+ 
+private:
+    const char* errMessage_;
+};
+
+class IncompatibleDiameterException : public exception {
+public:
+    IncompatibleDiameterException(const char* errMessage):errMessage_(errMessage){}
 
     const char* what() const throw() { return errMessage_; }
  
