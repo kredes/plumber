@@ -8,7 +8,6 @@ using namespace std;
 class PlumberType {
 public:
     virtual string repr() {};
-    virtual string type() {};
 };
 
 
@@ -39,13 +38,9 @@ public:
     
     string repr() {  
         stringstream os;
-        
         os << "Tube(" << length << ", " << diameter << ")";  
-        
         return os.str();  
     }
-    
-    string type() { return "Tube"; }
     
 };
 
@@ -60,22 +55,14 @@ public:
     }
     
     Tube* merge(Tube* t1, Tube* t2) {
-        cout << "\tMerging... ";
-        Tube *t = new Tube(t1->length + t2->length, diameter);
-        cout << "done." << endl;
-        
-        return t;
+        return new Tube(t1->length + t2->length, diameter);
     }
     
     string repr() {
         stringstream os;
-        
         os << "Connector(" << diameter << ")";  
-        
         return os.str();  
     }
-    
-    string type() { return "Tubevector"; }
 };
 
 class Tubevector : public PlumberType {
@@ -92,20 +79,22 @@ public:
     }
     
     void push(Tube* t) {
+        /*
         if (this->full()) {
             stringstream error;
             error << "Tubevector is full (current size: " << tubes.size() << ", max size: " << max_size << ")" << endl;
             throw runtime_error(error.str());
-        }
+        }*/
         tubes.push_back(t);
     }
     
     Tube* pop() {
+        /*
         if (tubes.size() == 0) {
             stringstream error;
             error << "Tubevector is empty (current size: " << tubes.size() << ", max size: " << max_size << ")" << endl;
             throw runtime_error(error.str());
-        }
+        }*/
         
         Tube *t = tubes.back();
         tubes.pop_back();
@@ -121,17 +110,16 @@ public:
         stringstream os;
         
         os << "Tubevector(" << max_size << ") -> [";  
-        
-        for (int i = 0; i < tubes.size(); ++i) {
-            os << tubes[i]->repr() << ", ";
+        for (int i = 0; i < max_size; ++i) {
+            if (i < tubes.size()) os << tubes[i]->repr();
+            else os << "_";
+            
+            if (i < max_size - 1) os << ", ";
         }
-        
         os << "]";
         
         return os.str();  
     }
-    
-    string type() { return "Connector"; }
 };
 
 class InvalidIdentifierException : public exception {
@@ -147,6 +135,16 @@ private:
 class IncompatibleDiameterException : public exception {
 public:
     IncompatibleDiameterException(const char* errMessage):errMessage_(errMessage){}
+
+    const char* what() const throw() { return errMessage_; }
+ 
+private:
+    const char* errMessage_;
+};
+
+class TubevectorCapacityException : public exception {
+public:
+    TubevectorCapacityException(const char* errMessage):errMessage_(errMessage){}
 
     const char* what() const throw() { return errMessage_; }
  

@@ -1,11 +1,128 @@
 #header
 <<
 #include <map>
+#include <set>
 #include <vector>
-#include "types.cc"
 #include <string>
 #include <iostream>
+#include <sstream>
+
 using namespace std;
+
+/* Base class for any type and a subclass for each concrete type, 
+   plus some custom exceptions for convenience. */
+class PlumberType {
+public:
+    /* The string representation of the element */
+    virtual string repr() {};
+};
+
+class Tube : public PlumberType {
+public:
+    int length, diameter;
+    
+    Tube() {}
+    Tube(int length, int diameter) {
+        this->length = length;
+        this->diameter = diameter;
+    }
+    pair<Tube*, Tube*> split() {
+        int l1, l2;
+        
+        if (length % 2 == 0) {
+            l1 = length/2;
+            l2 = length/2;
+        } else {
+            l1 = length/2;
+            l2 = (length/2) + 1;
+        }
+        return make_pair(new Tube(l1, diameter), new Tube(l2, diameter));
+    }
+    string repr() {  
+        stringstream os;
+        os << "Tube(" << length << ", " << diameter << ")";  
+        return os.str();  
+    }
+};
+
+class Connector : public PlumberType {
+public:
+    int diameter;
+    
+    Connector() {}
+    Connector(int diameter) {
+        this->diameter = diameter;
+    }
+    Tube* merge(Tube* t1, Tube* t2) {
+        return new Tube(t1->length + t2->length, diameter);
+    }
+    string repr() {
+        stringstream os;
+        os << "Connector(" << diameter << ")";  
+        return os.str();  
+    }
+};
+
+class Tubevector : public PlumberType {
+public:
+    vector<Tube*> tubes;
+    int max_size;
+    
+    Tubevector() {}
+    Tubevector(int max_size) {
+        this->max_size = max_size;
+        this->tubes = vector<Tube*>();
+    }
+    void push(Tube* t) { tubes.push_back(t); }
+    Tube* pop() {
+        Tube *t = tubes.back();
+        tubes.pop_back();
+        
+        return t;
+    }
+    bool empty() { return tubes.empty(); }
+    bool full() { return tubes.size() == max_size; }
+    string repr() {  
+        stringstream os;
+        os << "Tubevector(" << max_size << ") -> [";  
+        for (int i = 0; i < max_size; ++i) {
+            if (i < tubes.size()) os << tubes[i]->repr();
+            else os << "_";
+            
+            if (i < max_size - 1) os << ", ";
+        }
+        os << "]";
+        return os.str();  
+    }
+};
+
+class InvalidIdentifierException : public exception {
+public:
+    InvalidIdentifierException(const char* errMessage):errMessage_(errMessage){}
+    const char* what() const throw() { return errMessage_; }
+private:
+    const char* errMessage_;
+};
+
+class IncompatibleDiameterException : public exception {
+public:
+    IncompatibleDiameterException(const char* errMessage):errMessage_(errMessage){}
+    const char* what() const throw() { return errMessage_; }
+private:
+    const char* errMessage_;
+};
+
+class TubevectorCapacityException : public exception {
+public:
+    TubevectorCapacityException(const char* errMessage):errMessage_(errMessage){}
+    const char* what() const throw() { return errMessage_; }
+private:
+    const char* errMessage_;
+};
+
+
+
+
 
 // struct to store information about tokens
 typedef struct {
@@ -13,18 +130,6 @@ typedef struct {
   string text;
 } Attrib;
 
-// Represents the result of evaluating something
-typedef struct {
-    bool success;
-    
-    string type;
-    
-    Tube *t1, *t2 = NULL;
-    Tubevector *vector = NULL;
-    Connector connector;
-    bool condition;
-    int number;
-} Evaluation;
 
 // function to fill token information (predeclaration)
 void zzcr_attr(Attrib *attr, int type, char *text);
@@ -42,16 +147,25 @@ AST* createASTnode(Attrib* attr, int ttype, char *textt);
 #include <cstdlib>
 #include <cmath>
 
-// Symbols Table
-map<string, PlumberType> m;
+/* Wether the execution is in a local scope (inside a while)
+   so local variables can be managed properly. localvars is emptied 
+   when the while ends */
+bool LOCAL = false;
+set<string> localvars = set<string>();
 
+// Symbol Table
+map<string, PlumberType*> m;
+
+
+// Pretty Prints the symbol table
 void printSymbolTable() {
-    cout << endl << endl << "Symbols table" << endl;
-    cout << "id    | value" << endl;
-    cout << "---------------" << endl;
-    for(map<string, PlumberType>::iterator it = m.begin(); it != m.end(); ++it) {
-        PlumberType elem = it->second;
-        cout << it->first << "     | " << elem.repr() << endl;
+    cout << endl << endl << "SYMBOL TABLE" << endl;
+    cout << "-------------------" << endl;
+    cout << "id\t| value" << endl;
+    cout << "-------------------" << endl;
+    for(map<string, PlumberType*>::iterator it = m.begin(); it != m.end(); ++it) {
+        PlumberType *elem = it->second;
+        if (elem != NULL) cout << it->first << "\t| " << elem->repr() << endl;
     }
     cout << endl << endl;
 }
@@ -131,88 +245,150 @@ void ASTPrint(AST *a)
   }
 }
 
-/* Forward declarations */
+/* Forward declaration of evaluators */
 int evaluateNumber(AST *a);
 bool evaluateBool(AST *a);
-Tube evaluateTube(AST *a);
-Tubevector evaluateVector(AST *a);
-Connector evaluateConnector(AST *a);
-pair<Tube, Tube> evaluateSplit(AST *a);
+Tube* evaluateTube(AST *a);
+Tubevector* evaluateVector(AST *a);
+Connector* evaluateConnector(AST *a);
+pair<Tube*, Tube*> evaluateSplit(AST *a);
 
 
-/*
-    Evaluates any instruction that yields a single Tube as a result.
-    I.e.: TUBE and MERGE
+void checkIdentifierValidity(PlumberType *elem, AST *origin) {
+    if (elem == NULL) {
+        stringstream error;
+        error << "ERROR: The identifier '" << origin->text << "' does not exist." << endl;
+        cout << error.str();
+        throw InvalidIdentifierException(error.str().c_str());
+    }
+}
+
+/* Evaluates any instruction that returns a single Tube as a result.
+   I.e.: TUBE, MERGE and any ID
 */
-Tube evaluateTube(AST *a) {
+Tube* evaluateTube(AST *a) {
     if (a->kind == "TUBE") {
         int length = evaluateNumber(child(a,0));
         int diameter = evaluateNumber(child(a,1));
-        
-        return Tube(length, diameter);
+                
+        return new Tube(length, diameter);
         
     } else if (a->kind == "MERGE") {
-        Connector c = evaluateConnector(child(a,1));
-        Tube t1 = evaluateTube(child(a,0));
-        Tube t2 = evaluateTube(child(a,2));
+        Tube *t1 = evaluateTube(child(a,0));
+        Connector *c = evaluateConnector(child(a,1));
+        Tube *t2 = evaluateTube(child(a,2));
         
-        return c.merge(t1, t2);     // TODO: Remove them from memory!!!
+        int d1 = t1->diameter;
+        int d2 = c->diameter;
+        int d3 = t2->diameter;
+        if (d1 != d2 or d2 != d3 or d1 != d3) {
+            cout << "ERROR: Cannot MERGE. Incompatible diameters (" << d1 << ", " << d2 << ", " << d3 << ")" << endl;
+            throw IncompatibleDiameterException("Dummy");
+        }
+        
+        Tube *t = c->merge(t1, t2);
+        
+        /* Check if they're in the map as they might be a temporary element
+           created in a nested instruction */
+        if (m.find(child(a,0)->text) != m.end())
+            m[child(a,0)->text] = NULL;
+        if (m.find(child(a,1)->text) != m.end())
+            m[child(a,1)->text] = NULL;
+        if (m.find(child(a,2)->text) != m.end())
+            m[child(a,2)->text] = NULL;
+            
+        delete t1;
+        delete c;
+        delete t2;
+        
+        return t;     
     }
-    else if (a->kind == "id")
-        return (Tube) m[a->text];
-    else {
-        throw "This shouldn't happen";
-    }
-}
-
-pair<Tube, Tube> evaluateSplit(AST *a) {
-    if (a->kind == "SPLIT") {
-        Tube t = evaluateTube(child(a,0));
-        return t.split();
+    else if (a->kind == "id") {
+        Tube *t = (Tube*) m[a->text];
+        checkIdentifierValidity(t, a);
+        return t;
     } else {
-        throw "This shouldn't happen";
+        stringstream error;
+        error << "This shouldn't happen @ evaluateTube(). Was trying to evaluate: ";
+        error << "kind: " << a->kind << ", text: " << a->text << endl;
+        throw runtime_error(error.str());
     }
 }
 
-// Evaluates the TUBEVECTOR instruction
-Tubevector evaluateVector(AST *a) {
+pair<Tube*, Tube*> evaluateSplit(AST *a) {
+    if (a->kind == "SPLIT") {
+        Tube *t = evaluateTube(child(a,0));
+        pair<Tube*, Tube*> p = t->split();
+        
+        // See MERGE's evaluation of Tube for the explanation of this
+        if (m.find(child(a,0)->text) != m.end()) {
+            m[child(a,0)->text] = NULL;
+        }
+        delete t;
+        
+        return p;
+    } else {
+        stringstream error;
+        error << "This shouldn't happen @ evaluateSplit(). Was trying to evaluate: ";
+        error << "kind: " << a->kind << ", text: " << a->text << endl;
+        throw runtime_error(error.str());
+    }
+}
+
+// Evaluates the TUBEVECTOR instruction or an ID known to be a Tubevector
+Tubevector* evaluateVector(AST *a) {
     if (a->kind == "TUBEVECTOR") {
         int size = evaluateNumber(child(a,0));
-        return Tubevector(size);
+        return new Tubevector(size);
     } else if (a->kind == "id") {
-        return (Tubevector) m[a->text];
+        Tubevector *tv = (Tubevector*) m[a->text];
+        checkIdentifierValidity(tv, a);
+        return tv;
     } else {
-        throw "This shouldn't happen";
+        stringstream error;
+        error << "This shouldn't happen @ evaluateVector(). Was trying to evaluate: ";
+        error << "kind: " << a->kind << ", text: " << a->text << endl;
+        throw runtime_error(error.str());
     }
 }
 
-Connector evaluateConnector(AST *a) {
+Connector* evaluateConnector(AST *a) {
     if (a->kind == "CONNECTOR") {
         int diameter = evaluateNumber(child(a,0));
-        return Connector(diameter);
+        return new Connector(diameter);
     } else if (a->kind == "id") {
-        return (Connector) m[a->text];
+        Connector *c = (Connector*) m[a->text];
+        checkIdentifierValidity(c, a);
+        return c;
     } else {
-        throw "This shouldn't happen";
+        stringstream error;
+        error << "This shouldn't happen @ evaluateConnector(). Was trying to evaluate: ";
+        error << "kind: " << a->kind << ", text: " << a->text << endl;
+        throw runtime_error(error.str());
     }
 }
 
+/* Evaluates any function that returns a number, or a number itself */
 int evaluateNumber(AST *a) {
     if (a == NULL) return 0;
     else if (a->kind == "integer")
         return atoi(a->text.c_str());
     else if (a->kind == "LENGTH") {
-        Tube t = evaluateTube(child(a,0));
-        return t.length;
+        Tube *t = evaluateTube(child(a,0));
+        return t->length;
     }
     else if (a->kind == "DIAMETER") {
-        Tube t = evaluateTube(child(a,0));
-        return t.diameter;
+        Tube *t = evaluateTube(child(a,0));
+        return t->diameter;
     } else {
-        throw "This shouldn't happen";
+        stringstream error;
+        error << "This shouldn't happen @ evaluateNumber(). Was trying to evaluate: ";
+        error << "kind: " << a->kind << ", text: " << a->text << endl;
+        throw runtime_error(error.str());
     }
 }
 
+/* Evaluates a boolean expression of arbitrary complexity */
 bool evaluateBool(AST *a) {
     if (a->kind == "AND")
         return evaluateBool(child(a,0)) and evaluateBool(child(a,1));
@@ -227,114 +403,142 @@ bool evaluateBool(AST *a) {
     else if (a->kind == "==")
         return evaluateNumber(child(a,0)) == evaluateNumber(child(a,1));
     else if (a->kind == "FULL") {
-        Tubevector &tv = evaluateVector(child(a,0));
-        return tv.full();
+        Tubevector *tv = evaluateVector(child(a,0));
+        return tv->full();
     } else if (a->kind == "EMPTY") {
-        Tubevector &tv = evaluateVector(child(a,0));
-        return tv.empty();
+        Tubevector *tv = evaluateVector(child(a,0));
+        return tv->empty();
     } else {
-        throw "This shouldn't happen";
+        stringstream error;
+        error << "This shouldn't happen @ evaluateBool(). Was trying to evaluate: ";
+        error << "kind: " << a->kind << ", text: " << a->text << endl;
+        throw runtime_error(error.str());
     }
 }
 
-
-void execute(AST *a) {
-    if (a == NULL) return;
-    else if (a->kind == "=") {
-        bool split = child(a,2) == NULL ? false : true;
-        if (split) {
-            pair<Tube, Tube> ev = evaluateSplit(child(a,2));
-            m[child(a,0)->text] = ev.first;
-            m[child(a,1)->text] = ev.second;
-        } else {
-            AST *aux = child(a,1);
-            if (aux->kind == "TUBEVECTOR")
-                m[child(a,0)->text] = evaluateVector(aux);
-            else if (aux->kind == "CONNECTOR")
-                m[child(a,0)->text] = evaluateConnector(aux);
-            else if (aux->kind == "TUBE" or aux->kind == "MERGE")
-                m[child(a,0)->text] = evaluateTube(aux);
-        }
-    } else if (a->kind == "WHILE") {
-        bool condition = evaluateBool(child(a,0));
-        while (condition) {
-            execute(child(a,1));
-            condition = evaluateBool(child(a,0));
-        }
+/* Checks if an "=" instruction is an assignment between two variables (A = B) */
+bool isVariableAssignment(AST *a) {
+    AST *child = a->down;
+    while (child != NULL) {
+        if (child->kind != "id") return false;
+        child = child->right;
     }
-    // A function
-    else cout << evaluateNumber(a) << endl;
-    
-    execute(a->right);
+    return true;
 }
 
-/*
-Evaluation evaluate(AST *a) {
-    Evaluation eval;
-    if (a == NULL) return eval;
-    else if (a->kind == "id") 
-        PlumberType elem = m[a->text];
-        
-        if (elem.type() == "Tube")
-            eval.t1 = (Tube) elem;
-        else if (elem.type == "Tubevector")
-            eval.vector = (Tubevector) elem;
-        else if (elem.type == "Connector")
-            eval.connector = (Connector) elem;
-        
-        
-    else if (a->kind == "integer") 
-        
-        return atoi(a->text.c_str());
-    else if (a->kind == "+")
-        
-        return evaluate(child(a,0)).number + evaluate(child(a,1)).number;
-    else if (a->kind == "-")
-        return evaluate(child(a,0)).number - evaluate(child(a,1)).number;
-    else if (a->kind == "*")
-        return evaluate(child(a,0)).number * evaluate(child(a,1)).number;
-    else if (a->kind == "/")
-        return evaluate(child(a,0)).number / evaluate(child(a,1)).number;
-    
-    return eval;
+/* Adds id to the set of local variables in case it is not defined as a global one 
+   in the global symbol table */
+void maybeLocal(string id) {
+    if (LOCAL) {    
+        if (m.find(id) == m.end()) localvars.insert(id);
+    }
 }
-
 
 void execute(AST *a) {
-    if (a == NULL) return;
-    else if (a->kind == "=") {
-        bool split = child(a,2) == NULL ? false : true;
-        if (split) {
-            Evaluation ev = evaluate(child(a,2));
-            m[child(a,0)->text] = ev.t1;
-            m[child(a,1)->text] = ev.t2;
-        } else {
-            AST *aux = child(a,1);
+    try {
+        if (a == NULL) return;
+        else if (a->kind == "=") {
+            bool split = child(a,2) == NULL ? false : true;
+            if (split) {
+                pair<Tube*, Tube*> ev = evaluateSplit(child(a,2));
+                
+                maybeLocal(child(a,0)->text);
+                maybeLocal(child(a,1)->text);
+                
+                m[child(a,0)->text] = ev.first;
+                m[child(a,1)->text] = ev.second;
+            } else if (isVariableAssignment(a)) {
+                if (child(a,1)->text == "TUBE" or child(a,1)->text == "MERGE") {
+                    maybeLocal(child(a,0)->text);
+                    m[child(a,0)->text] = evaluateTube(child(a,1));
+                }
+                else if (child(a,1)->text == "CONNECTOR") {
+                    maybeLocal(child(a,0)->text);
+                    m[child(a,0)->text] = evaluateConnector(child(a,1));
+                }
+                else {
+                    maybeLocal(child(a,0)->text);
+                    m[child(a,0)->text] = evaluateTube(child(a,1));  
+                }
+            } else {
+                AST *aux = child(a,1);
+                if (aux->kind == "TUBEVECTOR") {
+                    maybeLocal(child(a,0)->text);
+                    m[child(a,0)->text] = evaluateVector(aux);
+                }
+                else if (aux->kind == "CONNECTOR") {
+                    maybeLocal(child(a,0)->text);
+                    m[child(a,0)->text] = evaluateConnector(aux);
+                }
+                else if (aux->kind == "TUBE" or aux->kind == "MERGE") {
+                    Tube* t = evaluateTube(aux);
+                    maybeLocal(child(a,0)->text);
+                    m[child(a,0)->text] = t;
+                }
+            }
+        } else if (a->kind == "WHILE") {
+            bool condition = evaluateBool(child(a,0));;
             
+            LOCAL = true;
             
-            if (aux->kind == "TUBEVECTOR")
-                m[child(a,0)->text] = evaluate(aux).vector;
-            else if (aux->kind == "TUBE")
-                m[child(a,0)->text] = evaluate(aux).t1;
+            while (condition) {                
+                execute(child(a,1));
+                condition = evaluateBool(child(a,0));
+            }
+            
+            LOCAL = false;
+                        
+            
+            for (set<string>::iterator it = localvars.begin(); it != localvars.end(); ++it) {                
+                PlumberType *elem = m[*it];
+                if (elem != NULL) m[*it] = NULL;
+            }
+            localvars.clear();
+            
+        } else if (a->kind == "PUSH") {
+            Tubevector *tv = evaluateVector(child(a,0));
+            Tube *t = evaluateTube(child(a,1));
+            
+            if (tv->full()) {
+                cout << "ERROR: Cannot PUSH. Tubevector '" << child(a,0)->text << "' is full." << endl;
+                throw TubevectorCapacityException("Dummy");
+            } 
+            else tv->push(t);
+            //cout << "\t\t---- PUSHED TO VECTOR ----" << endl;
+        } else if (a->kind == "POP") {
+            Tubevector *tv = evaluateVector(child(a,0));
+            
+            if (tv->empty()) {
+                cout << "ERROR: Cannot POP. Tubevector '" << child(a,0)->text << "' is empty." << endl;
+                throw TubevectorCapacityException("Dummy");
+            } else {
+                maybeLocal(child(a,1)->text);
+                m[child(a,1)->text] = tv->pop();
+            }
+        } else if (a->kind == "list") {
+            execute(child(a,0));
         }
-    } else if (a->kind == "WHILE") {
-        Evaluation ev = evaluate(child(a,0));
-        while (ev.condition) {
-            execute(child(a,1));
-            ev = evaluate(child(a,0));
-        }
+        // A function
+        else cout << evaluateNumber(a) << endl;
     } 
-    // A function
-    else cout << evaluate(a).number << endl;
+    catch (InvalidIdentifierException &e) {
+        // pass [message shown on checkIdentifierValidity()]
+    } catch(IncompatibleDiameterException &e) {
+        // pass [message shown on evaluateTube()]
+    } catch (TubevectorCapacityException &e) {
+        // pass [message shown on execute()]
+    }
     
     execute(a->right);
 }
-*/
 
 int main() {
   AST *root = NULL;
   ANTLR(plumber(&root), stdin);
   ASTPrint(root);
+  
+  cout << endl << endl << "EXECUTION" << endl << "-------------" << endl;
+  
   execute(root);
   
   printSymbolTable();
@@ -398,7 +602,7 @@ ops
 
 /* 
    BOOLEAN
-   Boolean expressions with standard precedences. Allows parenthesis.
+   Boolean expressions with standard precedences. Allow parenthesis.
 */
 boolexpr: bterm2 (OR^ bterm2)*;
 bterm2: bterm1 (AND^ bterm1);
@@ -406,7 +610,7 @@ bterm1
   : NOT^ bterm
   | bterm;
 bterm
-  : expr (GT^ expr | LT^ expr | EQ^ expr) // Should right atom be expr? Like x > 2 + 3 * 5
+  : expr (GT^ expr | LT^ expr | EQ^ expr)
   | boolatom; 
 boolatom: boolean_function | LPAREN! boolexpr RPAREN!;
 
@@ -426,7 +630,6 @@ whileloop
 */
 expr: term (PLUS^ term | MINUS^ term)*;
 term: atom (MULT^ atom | DIV^ atom)*;
-//atom: NUM | ID | numerical_function;
 atom: NUM | numerical_function;
 
 
@@ -465,7 +668,7 @@ empty: EMPTY^ LPAREN! ID RPAREN!;
 full: FULL^ LPAREN! ID RPAREN!;
 
 // SPLIT is NOT included in type_function for convenience
-type_function: tubevector | tube | connector | merge;
+type_function: tubevector | tube | connector | merge;   
 numerical_function: length | diameter;
 boolean_function: empty | full;
 
