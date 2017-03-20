@@ -83,12 +83,20 @@ public:
     }
     
     void push(Tube* t) {
-        if (tubes.size() == max_size) throw "Tubevector is full";
+        if (this->full()) {
+            stringstream error;
+            error << "Tubevector is full (current size: " << tubes.size() << ", max size: " << max_size << ")" << endl;
+            throw runtime_error(error.str());
+        }
         tubes.push_back(t);
     }
     
     Tube* pop() {
-        if (tubes.size() == 0) throw "Tubevector is empty";
+        if (tubes.size() == 0) {
+            stringstream error;
+            error << "Tubevector is empty (current size: " << tubes.size() << ", max size: " << max_size << ")" << endl;
+            throw runtime_error(error.str());
+        }
         
         Tube *t = tubes.back();
         tubes.pop_back();
@@ -106,7 +114,7 @@ public:
         os << "Tubevector(" << max_size << ") -> [";  
         
         for (int i = 0; i < tubes.size(); ++i) {
-            //os << tubes[i] << ", ";
+            os << tubes[i] << ", ";
         }
         
         os << "]";

@@ -14,18 +14,6 @@ typedef struct {
   string text;
 } Attrib;
 
-// Represents the result of evaluating something
-typedef struct {
-    bool success;
-    
-    string type;
-    
-    Tube *t1, *t2 = NULL;
-    Tubevector *vector = NULL;
-    Connector connector;
-    bool condition;
-    int number;
-} Evaluation;
 
 // function to fill token information (predeclaration)
 void zzcr_attr(Attrib *attr, int type, char *text);
@@ -52,9 +40,8 @@ void printSymbolTable() {
     cout << "---------------" << endl;
     for(map<string, PlumberType*>::const_iterator it = m.begin(); it != m.end(); ++it) {
         PlumberType *elem = it->second;
-        cout << it->first << "     | " << elem->repr() << endl;
+        cout << it->first << "      | " << elem->repr() << endl;
     }
-    cout << "Is the segfault here? I think so." << endl;
     cout << endl << endl;
 }
 
@@ -133,7 +120,7 @@ void ASTPrint(AST *a)
   }
 }
 
-/* Forward declarations */
+/* Forward declaration of evaluators */
 int evaluateNumber(AST *a);
 bool evaluateBool(AST *a);
 Tube* evaluateTube(AST *a);
@@ -317,92 +304,41 @@ void execute(AST *a) {
         }
     } else if (a->kind == "WHILE") {
         bool condition = evaluateBool(child(a,0));
+        cout << endl << "------------ WHILE START -------------" << endl;
         while (condition) {
+            cout << endl << "------------ ITERATION START -------------" << endl;
+            
+            ASTPrint(child(a,1));
+            
+            cout << endl;
+            
             execute(child(a,1));
+            
+            //cout << "AAAAAAAAAAAAAAAAAAA" << endl;
+            //ASTPrint(child(a,0));
+            //cout << "BBBBBBBBBBBBBBBBBBB" << endl;
+            ASTPrint(child(a,1));
+            
+            cout << endl << "------------ ITERATION END -------------" << endl;
             condition = evaluateBool(child(a,0));
         }
-    } else if (a->kind == "list") {
-        AST *child = a->down;
-        while (child != NULL) {
-            execute(child);
-            child = child->right;
-        }
+        cout << endl << "------------ WHILE END -------------" << endl;
     } else if (a->kind == "PUSH") {
         Tubevector *tv = evaluateVector(child(a,0));
         Tube *t = evaluateTube(child(a,1));
         tv->push(t);
+        //cout << "\t\t---- PUSHED TO VECTOR ----" << endl;
     } else if (a->kind == "POP") {
         Tubevector *tv = evaluateVector(child(a,0));
         m[child(a,1)->text] = tv->pop();
+    } else if (a->kind == "list") {
+        execute(child(a,0));
     }
     // A function
     else cout << evaluateNumber(a) << endl;
     
     execute(a->right);
 }
-
-/*
-Evaluation evaluate(AST *a) {
-    Evaluation eval;
-    if (a == NULL) return eval;
-    else if (a->kind == "id") 
-        PlumberType elem = m[a->text];
-        
-        if (elem.type() == "Tube")
-            eval.t1 = (Tube) elem;
-        else if (elem.type == "Tubevector")
-            eval.vector = (Tubevector) elem;
-        else if (elem.type == "Connector")
-            eval.connector = (Connector) elem;
-        
-        
-    else if (a->kind == "integer") 
-        
-        return atoi(a->text.c_str());
-    else if (a->kind == "+")
-        
-        return evaluate(child(a,0)).number + evaluate(child(a,1)).number;
-    else if (a->kind == "-")
-        return evaluate(child(a,0)).number - evaluate(child(a,1)).number;
-    else if (a->kind == "*")
-        return evaluate(child(a,0)).number * evaluate(child(a,1)).number;
-    else if (a->kind == "/")
-        return evaluate(child(a,0)).number / evaluate(child(a,1)).number;
-    
-    return eval;
-}
-
-
-void execute(AST *a) {
-    if (a == NULL) return;
-    else if (a->kind == "=") {
-        bool split = child(a,2) == NULL ? false : true;
-        if (split) {
-            Evaluation ev = evaluate(child(a,2));
-            m[child(a,0)->text] = ev.t1;
-            m[child(a,1)->text] = ev.t2;
-        } else {
-            AST *aux = child(a,1);
-            
-            
-            if (aux->kind == "TUBEVECTOR")
-                m[child(a,0)->text] = evaluate(aux).vector;
-            else if (aux->kind == "TUBE")
-                m[child(a,0)->text] = evaluate(aux).t1;
-        }
-    } else if (a->kind == "WHILE") {
-        Evaluation ev = evaluate(child(a,0));
-        while (ev.condition) {
-            execute(child(a,1));
-            ev = evaluate(child(a,0));
-        }
-    } 
-    // A function
-    else cout << evaluate(a).number << endl;
-    
-    execute(a->right);
-}
-*/
 
 int main() {
   AST *root = NULL;
@@ -479,7 +415,7 @@ bterm1
   : NOT^ bterm
   | bterm;
 bterm
-  : expr (GT^ expr | LT^ expr | EQ^ expr) // Should right atom be expr? Like x > 2 + 3 * 5
+  : expr (GT^ expr | LT^ expr | EQ^ expr)
   | boolatom; 
 boolatom: boolean_function | LPAREN! boolexpr RPAREN!;
 
