@@ -38,9 +38,13 @@ void printSymbolTable() {
     cout << endl << endl << "SYMBOLS TABLE" << endl;
     cout << "id     | value" << endl;
     cout << "---------------" << endl;
-    for(map<string, PlumberType*>::const_iterator it = m.begin(); it != m.end(); ++it) {
+    for(map<string, PlumberType*>::iterator it = m.begin(); it != m.end(); ++it) {
         PlumberType *elem = it->second;
-        cout << it->first << "      | " << elem->repr() << endl;
+        //cout << it->first << "      | " << elem->repr() << endl;
+        
+        cout << "Is this element null? ";
+        if (it->second == NULL) cout << "Yes." << endl;
+        else cout << "No. It is: " << it->first << " -> " << it->second->repr() << endl;
     }
     cout << endl << endl;
 }
@@ -160,13 +164,21 @@ Tube* evaluateTube(AST *a) {
                 
         Tube *t = c->merge(t1, t2);
         
-        m.erase(child(a,0)->text);
-        m.erase(child(a,1)->text);
-        m.erase(child(a,2)->text);
-        
-        delete t1;
-        delete c;
-        delete t2;
+        // Check if they're in the map as they might be a temporary element
+        // created in a nested instruction
+        int x;
+        if (m.find(child(a,0)->text) != m.end())
+            x = m.erase(child(a,0)->text);
+        if (m.find(child(a,1)->text) != m.end())
+            x = m.erase(child(a,1)->text);
+        if (m.find(child(a,2)->text) != m.end())
+            x = m.erase(child(a,2)->text);
+
+        if (x == 0) throw 123;
+            
+        //delete t1;
+        //delete c;
+        //delete t2;
         
         return t;     
     }
@@ -189,8 +201,10 @@ pair<Tube*, Tube*> evaluateSplit(AST *a) {
         Tube *t = evaluateTube(child(a,0));
         pair<Tube*, Tube*> p = t->split();
         
-        m.erase(child(a,0)->text);
-        delete t;
+        // See MERGE's evaluation of Tube for the explanation of this
+        if (m.find(child(a,0)->text) != m.end()) m.erase(child(a,0)->text);
+        
+        //delete t;
         
         return p;
     } else {
@@ -311,18 +325,29 @@ void execute(AST *a) {
                 m[child(a,0)->text] = ev.first;
                 m[child(a,1)->text] = ev.second;
             } else if (isVariableAssignment(a)) {
-                m[child(a,0)->text] = evaluateTube(child(a,1));
+                if (child(a,1)->text == "TUBE" or child(a,1)->text == "MERGE")
+                    m[child(a,0)->text] = evaluateTube(child(a,1));
+                else if (child(a,1)->text == "CONNECTOR")
+                    m[child(a,0)->text] = evaluateConnector(child(a,1));
             } else {
                 AST *aux = child(a,1);
-                if (aux->kind == "TUBEVECTOR")
+                if (aux->kind == "TUBEVECTOR") {
                     m[child(a,0)->text] = evaluateVector(aux);
-                else if (aux->kind == "CONNECTOR")
+                    
+                    //printSymbolTable();
+                }
+                else if (aux->kind == "CONNECTOR") {
                     m[child(a,0)->text] = evaluateConnector(aux);
+                    
+                    //printSymbolTable();
+                }
                 else if (aux->kind == "TUBE" or aux->kind == "MERGE") {
                     Tube* t = evaluateTube(aux);
+                    m[child(a,0)->text] = t;
                     cout << "\t\tCreated tube with id --" << child(a,0)->text << "-- ";
                     cout << "and length: " << t->length << ", diameter: " << t->diameter << endl;
-                    m[child(a,0)->text] = t;
+                    
+                    //printSymbolTable();
                 }
             }
         } else if (a->kind == "WHILE") {

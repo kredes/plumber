@@ -23,9 +23,18 @@ public:
         this->diameter = diameter;
     }
     
-    // TODO: Odd length tubes
+    
     pair<Tube*, Tube*> split() {
-        return make_pair(new Tube(length/2, diameter), new Tube(length/2, diameter));
+        int l1, l2;
+        
+        if (length % 2 == 0) {
+            l1 = length/2;
+            l2 = length/2;
+        } else {
+            l1 = (length/2) + 1;
+            l2 = length/2;
+        }
+        return make_pair(new Tube(l1, diameter), new Tube(l2, diameter));
     }
     
     string repr() {  
@@ -114,7 +123,7 @@ public:
         os << "Tubevector(" << max_size << ") -> [";  
         
         for (int i = 0; i < tubes.size(); ++i) {
-            os << tubes[i] << ", ";
+            os << tubes[i]->repr() << ", ";
         }
         
         os << "]";
