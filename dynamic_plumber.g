@@ -1,6 +1,7 @@
 #header
 <<
 #include <map>
+#include <set>
 #include <vector>
 #include "dynamic_types.cc"
 #include <string>
@@ -32,7 +33,9 @@ AST* createASTnode(Attrib* attr, int ttype, char *textt);
 #include <cmath>
 
 // Symbols Table
+bool LOCAL = false;
 map<string, PlumberType*> m;
+set<string> localvars = set<string>();
 
 void printSymbolTable() {
     cout << endl << endl << "SYMBOLS TABLE" << endl;
@@ -176,15 +179,12 @@ Tube* evaluateTube(AST *a) {
         
         // Check if they're in the map as they might be a temporary element
         // created in a nested instruction
-        int x;
         if (m.find(child(a,0)->text) != m.end())
-            x = m.erase(child(a,0)->text);
+            m[child(a,0)->text] = NULL;
         if (m.find(child(a,1)->text) != m.end())
-            x = m.erase(child(a,1)->text);
+            m[child(a,1)->text] = NULL;
         if (m.find(child(a,2)->text) != m.end())
-            x = m.erase(child(a,2)->text);
-
-        if (x == 0) throw 123;
+            m[child(a,2)->text] = NULL;
             
         //delete t1;
         //delete c;
@@ -213,8 +213,7 @@ pair<Tube*, Tube*> evaluateSplit(AST *a) {
         
         // See MERGE's evaluation of Tube for the explanation of this
         if (m.find(child(a,0)->text) != m.end()) {
-            int x = m.erase(child(a,0)->text);
-            if (x == 0) throw 234;
+            m[child(a,0)->text] = NULL;
         }
         //delete t;
         
@@ -323,6 +322,19 @@ bool isVariableAssignment(AST *a) {
     return true;
 }
 
+void maybeLocal(string id) {
+    if (LOCAL) {
+        cout << "Is the variable with ID: " << id << " in the Symbol Table?" << endl;
+    
+        if (m.find(id) != m.end()) return;
+        else {
+            cout << "Apparently not. BUT, here is the Table" << endl;
+            printSymbolTable();
+            localvars.insert(id);
+        }
+    }
+}
+
 void execute(AST *a) {
     if (a != NULL) {
         cout << "Executing -> " << "kind: " << a->kind << ", text: " << a->text << endl;
@@ -334,29 +346,40 @@ void execute(AST *a) {
             bool split = child(a,2) == NULL ? false : true;
             if (split) {
                 pair<Tube*, Tube*> ev = evaluateSplit(child(a,2));
+                
+                maybeLocal(child(a,0)->text);
+                maybeLocal(child(a,1)->text);
+                
                 m[child(a,0)->text] = ev.first;
                 m[child(a,1)->text] = ev.second;
             } else if (isVariableAssignment(a)) {
-                if (child(a,1)->text == "TUBE" or child(a,1)->text == "MERGE")
+                if (child(a,1)->text == "TUBE" or child(a,1)->text == "MERGE") {
+                    maybeLocal(child(a,0)->text);
                     m[child(a,0)->text] = evaluateTube(child(a,1));
-                else if (child(a,1)->text == "CONNECTOR")
+                }
+                else if (child(a,1)->text == "CONNECTOR") {
+                    maybeLocal(child(a,0)->text);
                     m[child(a,0)->text] = evaluateConnector(child(a,1));
-                else
-                    m[child(a,0)->text] = evaluateTube(child(a,1));
+                }
+                else {
+                    maybeLocal(child(a,0)->text);
+                    m[child(a,0)->text] = evaluateTube(child(a,1));  
+                }
             } else {
                 AST *aux = child(a,1);
                 if (aux->kind == "TUBEVECTOR") {
+                    maybeLocal(child(a,0)->text);
                     m[child(a,0)->text] = evaluateVector(aux);
-                    
                     //printSymbolTable();
                 }
                 else if (aux->kind == "CONNECTOR") {
+                    maybeLocal(child(a,0)->text);
                     m[child(a,0)->text] = evaluateConnector(aux);
-                    
                     //printSymbolTable();
                 }
                 else if (aux->kind == "TUBE" or aux->kind == "MERGE") {
                     Tube* t = evaluateTube(aux);
+                    maybeLocal(child(a,0)->text);
                     m[child(a,0)->text] = t;
                     cout << "\t\tCreated tube with id --" << child(a,0)->text << "-- ";
                     cout << "and length: " << t->length << ", diameter: " << t->diameter << endl;
@@ -368,6 +391,9 @@ void execute(AST *a) {
             bool condition = evaluateBool(child(a,0));
             cout << endl << "------------ WHILE START -------------" << endl;
             printSymbolTable();
+            
+            LOCAL = true;
+            
             while (condition) {
                 cout << endl << "------------ ITERATION START -------------" << endl;
                 
@@ -377,6 +403,22 @@ void execute(AST *a) {
                 printSymbolTable();
                 condition = evaluateBool(child(a,0));
             }
+            
+            LOCAL = false;
+            
+            cout << localvars.size() << endl;
+            
+            
+            for (set<string>::iterator it = localvars.begin(); it != localvars.end(); ++it) {
+                cout << "LOCALVAR: " << *it << endl;
+                
+                PlumberType *elem = m[*it];
+                if (elem != NULL) m[*it] = NULL;
+            }
+            localvars.clear();
+            
+            printSymbolTable();
+            
             cout << endl << "------------ WHILE END -------------" << endl;
         } else if (a->kind == "PUSH") {
             Tubevector *tv = evaluateVector(child(a,0));
@@ -385,6 +427,7 @@ void execute(AST *a) {
             //cout << "\t\t---- PUSHED TO VECTOR ----" << endl;
         } else if (a->kind == "POP") {
             Tubevector *tv = evaluateVector(child(a,0));
+            maybeLocal(child(a,1)->text);
             m[child(a,1)->text] = tv->pop();
         } else if (a->kind == "list") {
             execute(child(a,0));
