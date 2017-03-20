@@ -129,6 +129,17 @@ Connector* evaluateConnector(AST *a);
 pair<Tube*, Tube*> evaluateSplit(AST *a);
 
 
+void checkIdentifierValidity(PlumberType *elem, AST *origin) {
+    if (elem == NULL) {
+        stringstream error;
+        error << "\t\tERROR: invalid identifier (" << origin->text << ")" << endl;
+        
+        cout << error.str();
+        
+        throw InvalidIdentifierException(error.str().c_str());
+    }
+}
+
 /*
     Evaluates any instruction that yields a single Tube as a result.
     I.e.: TUBE and MERGE
@@ -146,22 +157,24 @@ Tube* evaluateTube(AST *a) {
         Tube *t1 = evaluateTube(child(a,0));
         Connector *c = evaluateConnector(child(a,1));
         Tube *t2 = evaluateTube(child(a,2));
-        /*
-        cout << endl << endl;
-        printSymbolTable();
-        cout << endl << endl;
-        */
-        /*
-        cout << "(t1 evaluated to -> " << t1->repr() << ")" << endl;
-        cout << "(c evaluated to -> " << c->repr() << ")" << endl;
-        cout << "(t2 evaluated to -> " << t2->repr() << ")" << endl;
-        */
+                
+        Tube *t = c->merge(t1, t2);
         
-        return c->merge(t1, t2);     // TODO: Remove them from memory!!!
+        m.erase(child(a,0)->text);
+        m.erase(child(a,1)->text);
+        m.erase(child(a,2)->text);
+        
+        delete t1;
+        delete c;
+        delete t2;
+        
+        return t;     
     }
-    else if (a->kind == "id")
-        return (Tube*) m[a->text];
-    else {
+    else if (a->kind == "id") {
+        Tube *t = (Tube*) m[a->text];
+        checkIdentifierValidity(t, a);
+        return t;
+    } else {
         stringstream error;
         error << "This shouldn't happen @ evaluateTube(). Was trying to evaluate: ";
         error << "kind: " << a->kind << ", text: " << a->text << endl;
@@ -174,7 +187,12 @@ pair<Tube*, Tube*> evaluateSplit(AST *a) {
 
     if (a->kind == "SPLIT") {
         Tube *t = evaluateTube(child(a,0));
-        return t->split();
+        pair<Tube*, Tube*> p = t->split();
+        
+        m.erase(child(a,0)->text);
+        delete t;
+        
+        return p;
     } else {
         stringstream error;
         error << "This shouldn't happen @ evaluateSplit(). Was trying to evaluate: ";
@@ -191,7 +209,9 @@ Tubevector* evaluateVector(AST *a) {
         int size = evaluateNumber(child(a,0));
         return new Tubevector(size);
     } else if (a->kind == "id") {
-        return (Tubevector*) m[a->text];
+        Tubevector *tv = (Tubevector*) m[a->text];
+        checkIdentifierValidity(tv, a);
+        return tv;
     } else {
         stringstream error;
         error << "This shouldn't happen @ evaluateVector(). Was trying to evaluate: ";
@@ -207,7 +227,9 @@ Connector* evaluateConnector(AST *a) {
         int diameter = evaluateNumber(child(a,0));
         return new Connector(diameter);
     } else if (a->kind == "id") {
-        return (Connector*) m[a->text];
+        Connector *c = (Connector*) m[a->text];
+        checkIdentifierValidity(c, a);
+        return c;
     } else {
         stringstream error;
         error << "This shouldn't happen @ evaluateConnector(). Was trying to evaluate: ";
@@ -280,62 +302,58 @@ void execute(AST *a) {
         cout << "Executing -> " << "kind: " << a->kind << ", text: " << a->text << endl;
     }
 
-    if (a == NULL) return;
-    else if (a->kind == "=") {
-        bool split = child(a,2) == NULL ? false : true;
-        if (split) {
-            pair<Tube*, Tube*> ev = evaluateSplit(child(a,2));
-            m[child(a,0)->text] = ev.first;
-            m[child(a,1)->text] = ev.second;
-        } else if (isVariableAssignment(a)) {
-            m[child(a,0)->text] = evaluateTube(child(a,1));
-        } else {
-            AST *aux = child(a,1);
-            if (aux->kind == "TUBEVECTOR")
-                m[child(a,0)->text] = evaluateVector(aux);
-            else if (aux->kind == "CONNECTOR")
-                m[child(a,0)->text] = evaluateConnector(aux);
-            else if (aux->kind == "TUBE" or aux->kind == "MERGE") {
-                Tube* t = evaluateTube(aux);
-                cout << "\t\tCreated tube with id --" << child(a,0)->text << "-- ";
-                cout << "and length: " << t->length << ", diameter: " << t->diameter << endl;
-                m[child(a,0)->text] = t;
+    try {
+        if (a == NULL) return;
+        else if (a->kind == "=") {
+            bool split = child(a,2) == NULL ? false : true;
+            if (split) {
+                pair<Tube*, Tube*> ev = evaluateSplit(child(a,2));
+                m[child(a,0)->text] = ev.first;
+                m[child(a,1)->text] = ev.second;
+            } else if (isVariableAssignment(a)) {
+                m[child(a,0)->text] = evaluateTube(child(a,1));
+            } else {
+                AST *aux = child(a,1);
+                if (aux->kind == "TUBEVECTOR")
+                    m[child(a,0)->text] = evaluateVector(aux);
+                else if (aux->kind == "CONNECTOR")
+                    m[child(a,0)->text] = evaluateConnector(aux);
+                else if (aux->kind == "TUBE" or aux->kind == "MERGE") {
+                    Tube* t = evaluateTube(aux);
+                    cout << "\t\tCreated tube with id --" << child(a,0)->text << "-- ";
+                    cout << "and length: " << t->length << ", diameter: " << t->diameter << endl;
+                    m[child(a,0)->text] = t;
+                }
             }
+        } else if (a->kind == "WHILE") {
+            bool condition = evaluateBool(child(a,0));
+            cout << endl << "------------ WHILE START -------------" << endl;
+            while (condition) {
+                cout << endl << "------------ ITERATION START -------------" << endl;
+                
+                execute(child(a,1));
+                
+                cout << endl << "------------ ITERATION END -------------" << endl;
+                condition = evaluateBool(child(a,0));
+            }
+            cout << endl << "------------ WHILE END -------------" << endl;
+        } else if (a->kind == "PUSH") {
+            Tubevector *tv = evaluateVector(child(a,0));
+            Tube *t = evaluateTube(child(a,1));
+            tv->push(t);
+            //cout << "\t\t---- PUSHED TO VECTOR ----" << endl;
+        } else if (a->kind == "POP") {
+            Tubevector *tv = evaluateVector(child(a,0));
+            m[child(a,1)->text] = tv->pop();
+        } else if (a->kind == "list") {
+            execute(child(a,0));
         }
-    } else if (a->kind == "WHILE") {
-        bool condition = evaluateBool(child(a,0));
-        cout << endl << "------------ WHILE START -------------" << endl;
-        while (condition) {
-            cout << endl << "------------ ITERATION START -------------" << endl;
-            
-            ASTPrint(child(a,1));
-            
-            cout << endl;
-            
-            execute(child(a,1));
-            
-            //cout << "AAAAAAAAAAAAAAAAAAA" << endl;
-            //ASTPrint(child(a,0));
-            //cout << "BBBBBBBBBBBBBBBBBBB" << endl;
-            ASTPrint(child(a,1));
-            
-            cout << endl << "------------ ITERATION END -------------" << endl;
-            condition = evaluateBool(child(a,0));
-        }
-        cout << endl << "------------ WHILE END -------------" << endl;
-    } else if (a->kind == "PUSH") {
-        Tubevector *tv = evaluateVector(child(a,0));
-        Tube *t = evaluateTube(child(a,1));
-        tv->push(t);
-        //cout << "\t\t---- PUSHED TO VECTOR ----" << endl;
-    } else if (a->kind == "POP") {
-        Tubevector *tv = evaluateVector(child(a,0));
-        m[child(a,1)->text] = tv->pop();
-    } else if (a->kind == "list") {
-        execute(child(a,0));
+        // A function
+        else cout << evaluateNumber(a) << endl;
+    } 
+    catch (InvalidIdentifierException &e) {
+        //cout << string(e.what()) << endl;
     }
-    // A function
-    else cout << evaluateNumber(a) << endl;
     
     execute(a->right);
 }
@@ -435,7 +453,6 @@ whileloop
 */
 expr: term (PLUS^ term | MINUS^ term)*;
 term: atom (MULT^ atom | DIV^ atom)*;
-//atom: NUM | ID | numerical_function;
 atom: NUM | numerical_function;
 
 

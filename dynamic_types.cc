@@ -51,7 +51,7 @@ public:
     }
     
     Tube* merge(Tube* t1, Tube* t2) {
-        cout << "Merging... ";
+        cout << "\tMerging... ";
         Tube *t = new Tube(t1->length + t2->length, diameter);
         cout << "done." << endl;
         
@@ -123,4 +123,14 @@ public:
     }
     
     string type() { return "Connector"; }
+};
+
+class InvalidIdentifierException : public exception {
+public:
+    InvalidIdentifierException(const char* errMessage):errMessage_(errMessage){}
+
+    const char* what() const throw() { return errMessage_; }
+ 
+private:
+    const char* errMessage_;
 };
